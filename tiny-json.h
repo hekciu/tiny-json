@@ -37,11 +37,19 @@ enum TJ_ERR tj_get_value(const struct tj_parsed * parsed, const char * key, cons
 enum TJ_ERR tj_clean(const struct tj_parsed * parsed);
 
 
-static enum TJ_ERR _tj_parse_block(const char * data, size_t max_size, size_t * block_size_ptr, struct tj_parsed * output);
-static enum TJ_ERR _tj_parse_string(const char * data, size_t max_size, size_t * block_size_ptr, struct tj_parsed * output);
+
+static enum TJ_ERR _tj_get_key(const char * data, size_t max_size, char ** output_ptr, ) {
+
+};
 
 
-static enum TJ_ERR _tj_parse_block(const char * data, size_t max_size, size_t * block_size_ptr, struct tj_parsed * output) {
+static enum TJ_ERR _tj_parse_block (
+    const char * data,
+    size_t max_size,
+    size_t * block_size_ptr,
+    const char * current_path,
+    struct tj_parsed * output
+) {
     bool started = false;
     bool currently_processing = false;
     size_t start_position = 0;
@@ -49,6 +57,8 @@ static enum TJ_ERR _tj_parse_block(const char * data, size_t max_size, size_t * 
 
     for (size_t char_num = 0; char_num < max_size; char_num++) {
         char current_char = *(data + char_num);
+
+        if (current_char == ' ') continue;
 
         if (!started && current_char != '{') continue;
 
@@ -58,7 +68,6 @@ static enum TJ_ERR _tj_parse_block(const char * data, size_t max_size, size_t * 
             continue;
         }
 
-        // to jest źle, musisz dodać parsing key/parsing value cos w tym stylu
         if (current_char == '}' && !currently_processing) {
             *block_size_ptr = char_num - start_position;
             return TJ_OK;
@@ -66,6 +75,18 @@ static enum TJ_ERR _tj_parse_block(const char * data, size_t max_size, size_t * 
 
         if (current_char == '}' && currently_processing) {
             return TJ_PARSE_UNEXPECTED_BRACKET;
+        }
+
+        if (current_char == '"') {
+            size_t key_start = 0;
+            size_t key_end = 0;
+            size_t value_start = 0;
+
+            err = _tj_get_key(data + char_num, max_size - char_num, &key, &value_start); // TODO: memory leak
+
+            if (err != TJ_OK) return;
+        } else {
+
         }
 
         if (current_char == '{') {
@@ -81,11 +102,6 @@ static enum TJ_ERR _tj_parse_block(const char * data, size_t max_size, size_t * 
     }
 
     return TJ_PARSE_MISSING_BRACKET;
-};
-
-
-static enum TJ_ERR _tj_parse_string(const char * data, size_t max_size, size_t * block_size_ptr, struct tj_parsed * output) {
-
 };
 
 
