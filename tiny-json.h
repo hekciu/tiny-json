@@ -41,11 +41,21 @@ enum TJ_ERR tj_get_value(const struct tj_parsed * parsed, const char * key, cons
 enum TJ_ERR tj_clean(const struct tj_parsed * parsed);
 
 
+static enum TJ_ERR _tj_parse_block (
+    const char * data,
+    size_t max_size,
+    const char * current_path,
+    struct tj_parsed * parsed,
+    size_t * char_num_ptr
+);
+
+
 
 static enum TJ_ERR _tj_parse_string (
     const char * data,
     size_t max_size,
-    char ** output_ptr
+    char ** output_ptr,
+    size_t * char_num_ptr
 ) {
     char * start = NULL;
     size_t output_size = 0;
@@ -67,6 +77,8 @@ static enum TJ_ERR _tj_parse_string (
             memcpy(*output_ptr, start, output_size);
             *(*output_ptr + output_size) = '\0';
 
+            *char_num_ptr = char_num;
+
             return TJ_OK;
         }
 
@@ -77,11 +89,11 @@ static enum TJ_ERR _tj_parse_string (
 };
 
 
-static enum TJ_ERR _tj_add_key (
+static enum TJ_ERR _tj_get_key (
     const char * data,
     size_t max_size,
     const char * current_path,
-    struct tj_parsed * parsed,
+    char ** output_path_ptr,
     size_t * key_size_ptr
 ) {
     char * start = NULL;
@@ -103,19 +115,14 @@ static enum TJ_ERR _tj_add_key (
 
         if (current_char == '"') {
             size_t current_path_size = strlen(current_path);
-            size_t full_key_size = current_path_size + key_size + 1 + 1;
+            size_t full_key_size = current_path_size + key_size + 1;
             char * full_key = malloc(full_key_size);
 
             memcpy(full_key, current_path, current_path_size);
-            *(full_key + current_path_size) = '.';
-            memcpy(full_key + current_path_size + 1, start, key_size);
+            memcpy(full_key + current_path_size, start, key_size);
             *(full_key + full_key_size) = '\0';
 
-            // TODO: add this key to struct data
-
-            printf("got key: %s\n", full_key);
-            free(full_key);
-
+            *output_path_ptr = full_key;
             *key_size_ptr = key_size;
 
             return TJ_OK;
@@ -130,7 +137,10 @@ static enum TJ_ERR _tj_add_key (
 
 static enum TJ_ERR _tj_parse_value (
     const char * data,
-    size_t max_size
+    size_t max_size,
+    const char * current_path,
+    struct tj_parsed * parsed,
+    size_t * char_num_ptr
 ) {
     bool started = false;
     enum TJ_ERR err;
@@ -150,12 +160,41 @@ static enum TJ_ERR _tj_parse_value (
         if (current_char == '"') {
             char * output = NULL;
 
-            err = _tj_parse_string(data + char_num, max_size - char_num, &output);
+            size_t parsed_char_num = 0;
+
+            err = _tj_parse_string(data + char_num, max_size - char_num, &output, &parsed_char_num);
 
             if (err != TJ_OK) return err;
 
-            printf("got string value: %s\n", output);
+            printf("got key: %s   value: %s\n", current_path, output);
             free(output);
+
+            char_num += parsed_char_num;
+
+            *char_num_ptr = char_num;
+
+            return TJ_OK;
+        }
+
+        if (current_char == '{') {
+            char * output = NULL;
+            size_t parsed_char_num = 0;
+
+            err = _tj_parse_block(
+                data + char_num,
+                max_size - char_num,
+                current_path,
+                parsed,
+                &parsed_char_num
+            );
+
+            if (err != TJ_OK) return err;
+
+            char_num += parsed_char_num;
+
+            *char_num_ptr = char_num;
+
+            return TJ_OK;
         }
     }
 };
@@ -164,14 +203,14 @@ static enum TJ_ERR _tj_parse_value (
 static enum TJ_ERR _tj_parse_block (
     const char * data,
     size_t max_size,
-    size_t * block_size_ptr,
     const char * current_path,
-    struct tj_parsed * parsed 
+    struct tj_parsed * parsed, 
+    size_t * char_num_ptr
 ) {
     bool started = false;
-    bool currently_processing = false;
     size_t start_position = 0;
     enum TJ_ERR err;
+    bool expects_key = false;
 
     for (size_t char_num = 0; char_num < max_size; char_num++) {
         char current_char = *(data + char_num);
@@ -182,40 +221,58 @@ static enum TJ_ERR _tj_parse_block (
 
         if (!started && current_char == '{') {
             started = true;
+            expects_key = true;
             start_position = char_num;
             continue;
         }
 
-        if (current_char == '}' && !currently_processing) {
-            *block_size_ptr = char_num - start_position;
+        if (current_char == '}' && !expects_key) {
+            *char_num_ptr = char_num;
             return TJ_OK;
         }
 
-        if (current_char == '}' && currently_processing) {
+        if (current_char == '}' && expects_key) {
             return TJ_PARSE_UNEXPECTED_BRACKET;
         }
 
-        if (current_char == '"') {
+        if (!expects_key && current_char == ',') {
+            expects_key = true;
+            continue;
+        }
+
+        if (current_char == '"' && expects_key) {
+            char * output_path = NULL;
+            expects_key = false;
+
             size_t key_size = 0;
 
-            err = _tj_add_key(
+            err = _tj_get_key(
                 data + char_num,
                 max_size - char_num,
                 current_path,
-                parsed,
-                &key_size
+                &output_path,
+                &key_size 
             ); 
+
+            // TODO: add key to parsed
 
             if (err != TJ_OK) return err;
 
             char_num += key_size + 2;
 
+            size_t value_char_num = 0;
+
             err = _tj_parse_value(
                 data + char_num,
-                max_size - char_num
+                max_size - char_num,
+                output_path,
+                parsed,
+                &value_char_num
             );
 
             if (err != TJ_OK) return err;
+
+            char_num += value_char_num;
 
             continue;
         } 
@@ -232,6 +289,6 @@ enum TJ_ERR tj_parse(const char * data, size_t size, struct tj_parsed * output) 
 
     size_t current_size = 0;
 
-    return _tj_parse_block(data, size, &current_size, "", output);
+    return _tj_parse_block(data, size, "", output, &current_size);
 };
 
