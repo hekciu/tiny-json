@@ -180,13 +180,21 @@ static enum TJ_ERR _tj_parse_value (
             char * output = NULL;
             size_t parsed_char_num = 0;
 
+            char * current_path_with_dot = malloc(strlen(current_path) + 2);
+
+            memcpy(current_path_with_dot, current_path, strlen(current_path));
+            *(current_path_with_dot + strlen(current_path)) = '.';
+            *(current_path_with_dot + strlen(current_path) + 1) = '\0';
+
             err = _tj_parse_block(
                 data + char_num,
                 max_size - char_num,
-                current_path,
+                current_path_with_dot,
                 parsed,
                 &parsed_char_num
             );
+
+            free(current_path_with_dot);
 
             if (err != TJ_OK) return err;
 
